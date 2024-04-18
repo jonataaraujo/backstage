@@ -1,23 +1,169 @@
-apiVersion: backstage.io/v1alpha1
-kind: Component
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
 metadata:
-  name: backstage
-  description: |
-    Backstage is an open-source developer portal that puts the developer experience first.
+  name: gcp-service-account-tmpl
+  title: GCP Service Account Template
+  description: This template generates a Terraform file for GCP Service Account and opens a PR in BitBucket
+  tags:
+  - gcp
+  - terraform
   links:
-    - title: Website
-      url: http://backstage.io
-    - title: Documentation
-      url: https://backstage.io/docs
-    - title: Storybook
-      url: https://backstage.io/storybook
-    - title: Discord Chat
-      url: https://discord.com/invite/EBHEGzX
-  annotations:
-    github.com/project-slug: backstage/backstage
-    backstage.io/techdocs-ref: dir:.
-    lighthouse.com/website-url: https://backstage.io
+  - title: Documentation
+    url: https://cloud.google.com/security/products/iam
+    icon: docs
 spec:
-  type: library
-  owner: CNCF
-  lifecycle: experimental
+  # The main purpose of this field is for display purposes in Backstage, so that 
+  # people looking at catalog items can get an understanding of to whom this Template belongs. 
+  # It is not to be used by automated processes to for example assign authorization in runtime systems. 
+  owner: you
+  # The type of component created by the template, e.g. website. This is used for filtering templates, and 
+  # should ideally match the Component spec.type created by the template.
+  type: gcp_resource
+
+  # Ref: https://backstage.io/docs/features/software-templates/writing-templates#specparameters---formstep--formstep
+  parameters:
+  - title: Fill in some steps
+    required:
+    - name
+    - display_name
+    properties:
+      name:
+        title: Name
+        type: string
+        pattern: '^[a-z-]+$' # Only lower letters and "-"
+        description: Unique name for your Service Account
+      display_name:
+        title: Description
+        type: string
+        maxLength: 100
+        description: Provide a short description
+      roles:
+        title: Roles
+        type: array
+        pattern: '^[a-zA-Z.]+$' # Only upper/lower letters and "."
+        ui:options:
+          addable: true
+          orderable: false
+          removable: true
+        items:
+          type: string
+        description: "Reference: https://cloud.google.com/iam/docs/understanding-roles"
+      permissions:
+        title: Permissions
+        type: array
+        pattern: '^[a-zA-Z.]+$' # Only upper/lower letters and "."
+        ui:options:
+          addable: true
+          orderable: false
+          removable: true
+        items:
+          type: string
+          title: permission
+        description: "Reference: https://cloud.google.com/iam/docs/permissions-reference"
+      bindings:
+        title: Bindings
+        description: "Reference: https://cloud.google.com/kubernetes-engine/docs/concepts/workload-identity"
+        type: array
+        ui:options:
+          addable: true
+          orderable: false
+          removable: true
+        items:
+          type: object
+          title: Binding
+          required:
+            - role
+            - members
+          properties:
+            role:
+              type: string
+              default: "iam.workloadIdentityUser"
+              description: "Reference: https://cloud.google.com/iam/docs/understanding-roles"
+            members:
+              type: array
+              title: Members
+              items:
+                type: string
+  - title: Location & Ownership 
+    required:
+    - project
+    - owner
+    properties:
+      project:
+        title: Project
+        type: string
+        description: Choose a GCP Project
+        enum: [
+          "project-a",
+          "project-b"
+        ]
+      owner:
+        title: Owner
+        type: string
+        description: Owner of the component
+        ui:field: OwnerPicker
+        ui:options:
+          catalogFilter:
+          kind: User
+
+  steps:
+  - id: tf-template
+    name: Create a Terraform file for GCP Service Account
+    action: fetch:template
+    input:
+      url: ./skeleton
+      targetPath: ./outputs
+      values:
+        name: ${{ parameters.name }}
+        display_name: ${{ parameters.display_name }}
+        roles: ${{ parameters.roles }}
+        permissions: ${{ parameters.permissions }}
+        bindings: ${{ parameters.bindings }}
+        owner: ${{ parameters.owner }}
+      
+  - id: rename
+    name: Rename template files
+    action: fs:rename
+    input:
+      files:
+      - from: ./outputs/template.tf
+        to: ./outputs/${{ parameters.name }}_instance.tf
+      - from: ./outputs/catalog-info.yaml
+        to: ./outputs/${{ parameters.name }}-component-info.yaml
+
+  - id: github_pr
+    name: Create GitHub PR
+    action: publish:github:pull-request
+    input:
+      repoUrl: <repository-url>
+      branchName: '${{ parameters.environment }}'
+      # Ref: https://github.com/backstage/backstage/pull/20733 - but apparently not yet available
+      update: true
+      title: '🔩 Create ${{ parameters.name }} GCP Service Account'
+      description: |
+        ## Creating GCP Service Account ${{ parameters.name }}
+        
+        This is an initial pull request to create an GCP Service Account and was created based on the Backstage template.
+
+        *created by: Backstage 👷‍♂️⚙️👷‍♀️
+      sourcePath: ./outputs
+      targetPath: 'projects/${{ parameters.environment }}/resources'
+
+  - id: label_pr
+    name: Add labels to PR
+    action: github:issues:label
+    input:
+      repoUrl: <repository-url>
+      number: '${{ steps.github_pr.output.pullRequestNumber }}'
+      labels:
+      - terraform
+      - created-by-backstage
+      - ${{ parameters.environment }}
+      - gcp
+
+
+  output:
+    links:
+    - title: 'Go to pull request :D'
+      url: ${{ steps.github_pr.output.remoteUrl }}
+      icon: github
