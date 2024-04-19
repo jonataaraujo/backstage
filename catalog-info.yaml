@@ -22,7 +22,7 @@ spec:
 
   parameters:
     - title: Inform the SQS initial information
-     required:
+      required:
         - queue_name
       properties:
         queue_name:
